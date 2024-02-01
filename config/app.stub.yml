@@ -1,0 +1,15 @@
+# 代理监听端口
+http-port: 80
+# https 代理配置
+https-port: 443
+https-key-file: ./certs/self-signed-key.pem
+https-cert-file: ./certs/self-signed-cert.pem
+# 外部服务的最高并发，为了使边界尽可能的简单高效，摆渡数据的量为外部服务的最大并发量，比如说最高支持 1000 并发
+
+max-cons: 1024
+read-timeout: 10
+write-timeout: 10
+idle-timeout: 1
+
+# 应用模式 debug release test
+mode: release

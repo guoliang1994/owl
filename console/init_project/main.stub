@@ -1,0 +1,11 @@
+package main
+
+import (
+	"owl"
+)
+
+func main() {
+	owl.NewApp("", "{{.appName}}", ".appDescription", owl.KillMain, func() {
+        // todo 启动服务
+	}).Run()
+}

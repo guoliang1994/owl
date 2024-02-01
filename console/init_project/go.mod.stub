@@ -1,0 +1,6 @@
+module mbox
+
+go 1.21.5
+
+require owl v0.0.0
+replace owl => ../owl
