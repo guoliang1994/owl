@@ -82,6 +82,7 @@ func Front(urlPrefix string, fs ServeFileSystem) gin.HandlerFunc {
 }
 
 type embedFileSystem struct {
+	distFs embed.FS
 	http.FileSystem
 }
 
@@ -93,6 +94,7 @@ func (e embedFileSystem) Exists(prefix string, path string) bool {
 	return true
 }
 func EmbedFolder(fsEmbed embed.FS, targetPath string) ServeFileSystem {
+	DistFs = fsEmbed
 	fsys, _ := fs.Sub(fsEmbed, targetPath)
 	return embedFileSystem{
 		FileSystem: http.FS(fsys),

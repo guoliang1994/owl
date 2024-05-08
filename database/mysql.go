@@ -6,22 +6,27 @@ import (
 	"owl/contract"
 )
 
-type mysqlConnector struct {
+type MysqlConnector struct {
 	opt *Options
 }
 
-func NewMysqlGetter(opt *Options) *mysqlConnector {
-	return &mysqlConnector{opt: opt}
+func NewMysqlGetter(opt *Options) *MysqlConnector {
+	return &MysqlConnector{opt: opt}
 }
-func (i *mysqlConnector) Open(dsn string, cfg *gorm.Config) (*gorm.DB, error) {
+func (i *MysqlConnector) Open(dsn string, cfg *gorm.Config) (*gorm.DB, error) {
 	openDb, err := gorm.Open(mysql.Open(dsn), cfg)
 	return openDb, err
 }
 
-func (i *mysqlConnector) Options() *Options {
+func (i *MysqlConnector) Options() *Options {
 	if i.opt != nil {
 		return i.opt
 	}
+
+	return i.DefaultOptions()
+}
+
+func (i *MysqlConnector) DefaultOptions() *Options {
 
 	return &Options{
 		ServerConfig: contract.ServerConfig{

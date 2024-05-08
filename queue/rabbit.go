@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"github.com/golang-module/carbon"
-	jsoniter "github.com/json-iterator/go"
 	"owl"
 	"owl/contract"
 	"sync"
@@ -13,53 +12,75 @@ import (
 	"github.com/streadway/amqp"
 )
 
+var (
+	connections = make(map[string]*amqp.Connection, 10)
+	linkMap     = make(map[string]*link, 10)
+	lock        sync.Mutex
+)
+
 type link struct {
 	dsn string
 }
 
 type Options struct {
 	contract.ServerConfig
+	Vhost   string `json:"vhost"`
+	CfgFile string `json:"cfg-file"`
+	AbsPath string `json:"abs-path"`
 }
 
-var (
-	connections = make(map[string]*amqp.Connection, 10)
-	linkMap     = make(map[string]*link, 10)
-	lock        sync.Mutex
-	logger      = owl.RuntimeLogger()
-)
+func NewOption(cfgManager *owl.ConfManager) (opt *Options) {
+	err := cfgManager.GetConfig("rabbit", &opt)
+	if err != nil {
+		return nil
+	}
+	opt.CfgFile = "rabbit"
+	return opt
+}
 
-// ConnectRabbit  多个实例公共使用一个连接
-func ConnectRabbit(cfgFile string, vhost string) *amqp.Connection {
+type RabbitMQ struct {
+	opt          *Options
+	l            contract.Logger
+	clientNotify chan *amqp.Error
+	exchange     string
+	queue        string
+	routingKey   string
+	closeNotify  chan *amqp.Error
+}
+
+func NewRabbit(opt *Options, l *owl.LoggerFactory) *RabbitMQ {
+	r := &RabbitMQ{
+		opt: opt,
+		l:   l.RuntimeLogger(),
+	}
+	return r
+}
+
+// Connect  多个实例公共使用一个连接
+func (i *RabbitMQ) Connect() *amqp.Connection {
 	var err error
 	lock.Lock()
 	defer lock.Unlock()
 
-	dbLinkInfo, ok := linkMap[cfgFile] // 申请连接过
+	dbLinkInfo, ok := linkMap[i.opt.CfgFile] // 申请连接过
 	if !ok {
 
-		cfg := owl.Config(cfgFile).ToString()
-		var opt Options
-		err = jsoniter.UnmarshalFromString(cfg, &opt)
-		if err != nil {
-			panic("解析RabbitMq配置错误" + err.Error())
-		}
-
 		dsn := fmt.Sprintf("amqp://%s:%s@%s:%d/%s",
-			opt.Username,
-			opt.Password,
-			opt.Host,
-			opt.Port,
-			vhost,
+			i.opt.Username,
+			i.opt.Password,
+			i.opt.Host,
+			i.opt.Port,
+			i.opt.Vhost,
 		)
-		linkMap[cfgFile] = &link{dsn: dsn}
-		dbLinkInfo = linkMap[cfgFile]
+		linkMap[i.opt.CfgFile] = &link{dsn: dsn}
+		dbLinkInfo = linkMap[i.opt.CfgFile]
 		go func() {
 			for {
 				select {
-				case file := <-owl.CfgChangeNotify[opt.AbsPath]:
+				case file := <-owl.CfgChangeNotify[i.opt.AbsPath]:
 					lock.Lock()
-					logger.Info("重载配置" + file)
-					delete(linkMap, cfgFile)
+					i.l.Info("重载配置" + file)
+					delete(linkMap, i.opt.CfgFile)
 					delete(connections, dsn)
 					lock.Unlock()
 					return
@@ -86,29 +107,12 @@ func ConnectRabbit(cfgFile string, vhost string) *amqp.Connection {
 	}
 }
 
-type RabbitMQ struct {
-	clientNotify chan *amqp.Error
-	cfgFile      string
-	vhost        string
-	exchange     string
-	queue        string
-	routingKey   string
-	closeNotify  chan *amqp.Error
+func (i *RabbitMQ) Queue(queue string) *RabbitMQ {
+	i.queue = queue
+	return i
 }
-
-func NewRabbit(cfgFile, vhost, exchange, routingKey, queue string) *RabbitMQ {
-	r := &RabbitMQ{
-		cfgFile:    cfgFile,
-		vhost:      vhost,
-		exchange:   exchange,
-		queue:      queue,
-		routingKey: routingKey,
-	}
-	return r
-}
-
 func (i *RabbitMQ) newQueue() error {
-	con := ConnectRabbit(i.cfgFile, i.vhost)
+	con := i.Connect()
 	if con == nil {
 		return errors.New("rabbit 未连接")
 	}
@@ -131,7 +135,7 @@ func (i *RabbitMQ) newQueue() error {
 
 // Publish 发布消息到 RabbitMQ
 func (i *RabbitMQ) Publish(message []byte) error {
-	con := ConnectRabbit(i.cfgFile, i.vhost)
+	con := i.Connect()
 	if con == nil {
 		return errors.New("rabbit 还未连接")
 	}
@@ -166,7 +170,7 @@ func (i *RabbitMQ) Consume(prefetchCount int, handler func(data string, msg amqp
 
 	go func() {
 	ReConsume:
-		con := ConnectRabbit(i.cfgFile, i.vhost)
+		con := i.Connect()
 
 		if con == nil {
 			time.Sleep(time.Second * 3)
@@ -181,13 +185,13 @@ func (i *RabbitMQ) Consume(prefetchCount int, handler func(data string, msg amqp
 		}
 
 		conClose := con.NotifyClose(make(chan *amqp.Error))
-		logger.Debug("开始消费")
+		i.l.Debug("开始消费")
 
-		logger.Debug("获取 channle")
+		i.l.Debug("获取 channle")
 		ch, err := con.Channel()
-		logger.Debug("获取 channle end")
+		i.l.Debug("获取 channle end")
 		if err != nil {
-			logger.Debug("获取通道失败")
+			i.l.Debug("获取通道失败")
 			time.Sleep(time.Second * 3)
 			goto ReConsume
 		}
@@ -215,14 +219,14 @@ func (i *RabbitMQ) Consume(prefetchCount int, handler func(data string, msg amqp
 			select {
 			case _, ok := <-conClose:
 				if !ok {
-					logger.Debug("通道关闭")
+					i.l.Debug("通道关闭")
 				}
-				logger.Debug("收到退出信号")
+				i.l.Debug("收到退出信号")
 				exitFor = true
 				break
 			case msg, ok := <-msgs:
 				if !ok {
-					logger.Debug("通道关闭")
+					i.l.Debug("通道关闭")
 					exitFor = true
 					break
 				}
@@ -230,7 +234,7 @@ func (i *RabbitMQ) Consume(prefetchCount int, handler func(data string, msg amqp
 				go handler(string(msg.Body), msg, &running)
 
 			default:
-				logger.Debug("消费者获取数据中", carbon.Now().ToDateTimeString())
+				i.l.Debug("消费者获取数据中", carbon.Now().ToDateTimeString())
 			}
 			if exitFor {
 				ch.Close()

@@ -3,7 +3,6 @@ package database
 import (
 	"fmt"
 	"github.com/gin-gonic/gin"
-	jsoniter "github.com/json-iterator/go"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 	"gorm.io/gorm/schema"
@@ -37,8 +36,8 @@ type Options struct {
 	MaxConns     int    `json:"max-conns"`
 }
 
-func NewOption(stage *owl.Stage) (opt *Options) {
-	err := jsoniter.UnmarshalFromString(stage.ConfManager.GetConfig("db").ToString(), &opt)
+func NewOption(cfgManager *owl.ConfManager, dbFile string) (opt *Options) {
+	err := cfgManager.GetConfig(dbFile, &opt)
 	if err != nil {
 		return nil
 	}
@@ -46,7 +45,6 @@ func NewOption(stage *owl.Stage) (opt *Options) {
 }
 
 type DatabaseService struct {
-	stage    *owl.Stage
 	l        contract.Logger
 	dsn      string
 	opt      *Options
@@ -54,21 +52,20 @@ type DatabaseService struct {
 	dbGetter Connector
 }
 
-func NewDatabaseService(stage *owl.Stage, dbGetter Connector) *DatabaseService {
+func NewDatabaseService(dbGetter Connector) *DatabaseService {
 	opt := dbGetter.Options()
 
 	i := &DatabaseService{
-		stage:    stage,
 		opt:      opt,
 		dbGetter: dbGetter,
 	}
 
-	i.Boot()
+	i.BlockRun()
 	return i
 }
 
 // Boot 打开连接
-func (i *DatabaseService) Boot() {
+func (i *DatabaseService) BlockRun() {
 	lock.Lock()
 	defer lock.Unlock()
 
@@ -132,7 +129,9 @@ func (i *DatabaseService) Boot() {
 func (i *DatabaseService) Get() *gorm.DB {
 	return i.db
 }
-
+func (i *DatabaseService) GetOptions() *Options {
+	return i.opt
+}
 func (i *DatabaseService) getDsnFromCfg(opt *Options) string {
 	var dsn string
 

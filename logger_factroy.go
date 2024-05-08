@@ -7,18 +7,33 @@ import (
 )
 
 type LoggerFactory struct {
-	stage  *Stage
-	logCfg GetConfigFunc
+	stage *Stage
+	opt   *Options
 }
 
-func NewLoggerFactory(stage *Stage) *LoggerFactory {
-	return &LoggerFactory{stage: stage}
+type Options struct {
+	Level      int  `json:"level"`
+	MaxSize    int  `json:"max-size"`
+	MaxBackups int  `json:"max-backups"`
+	MaxAge     int  `json:"max-age"`
+	Compress   bool `json:"compress"`
+}
+
+func NewLoggerFactory(stage *Stage, cfgManager *ConfManager) *LoggerFactory {
+	var opt *Options
+	_ = cfgManager.GetConfig("logs", &opt)
+	return &LoggerFactory{
+		opt:   opt,
+		stage: stage,
+	}
 }
 
 // RuntimeLogger 返回运行日志
 func (i *LoggerFactory) RuntimeLogger() contract.Logger {
-	i.logCfg = i.stage.ConfManager.GetConfig("logs").Get
-	level := zapcore.Level(i.logCfg("level").ToInt())
+	if i.opt == nil {
+		return log.ConsoleImpl{}
+	}
+	level := zapcore.Level(i.opt.Level)
 	return i.getLogger(log.RUNTIME, level)
 }
 
@@ -33,14 +48,16 @@ func (i *LoggerFactory) AccessLogger() contract.Logger {
 }
 
 func (i *LoggerFactory) getLogger(channel log.Channel, level zapcore.Level) contract.Logger {
-	logCfg := i.logCfg
+	if i.opt == nil {
+		return log.ConsoleImpl{}
+	}
 	options := log.Options{
 		StorePath:  LogsPath,
 		Channel:    channel,
-		MaxSize:    logCfg("max-size").ToInt(),
-		MaxBackups: logCfg("max-backups").ToInt(),
-		MaxAge:     logCfg("max-age").ToInt(),
-		Compress:   logCfg("compress").ToBool(),
+		MaxSize:    i.opt.MaxSize,
+		MaxBackups: i.opt.MaxBackups,
+		MaxAge:     i.opt.MaxAge,
+		Compress:   i.opt.Compress,
 		Level:      level,
 	}
 

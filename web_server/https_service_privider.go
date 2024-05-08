@@ -16,12 +16,85 @@ import (
 	"time"
 )
 
-type HttpsService struct {
-	*WebServer
+type HttpsOptions struct {
+	*WebServerOptions
+	Port     int    `json:"port"`
+	KeyFile  string `json:"key-file"`
+	CertFile string `json:"cert-file"`
 }
 
-func NewHttpsService(stage *owl.Stage, e *gin.Engine) *HttpsService {
-	certsPath := stage.RuntimePath(owl.StoragePath + "/certs")
+func NewHttpsOptionFromConfigFile(cfgManager *owl.ConfManager, file string) (opt *HttpsOptions) {
+	err := cfgManager.GetConfig(file+".https", &opt)
+	if err != nil {
+		return nil
+	}
+	return opt
+}
+
+func NewDefaultHttpsOption(stage *owl.Stage) (opt *HttpsOptions) {
+	opt = &HttpsOptions{
+		WebServerOptions: &WebServerOptions{
+			Domain:       "",
+			MaxCons:      1024,
+			ReadTimeout:  100,
+			WriteTimeout: 100,
+			IdleTimeout:  100,
+			Mode:         "release",
+		},
+		Port:     443,
+		KeyFile:  stage.StoragePath() + "/certs/self-signed-key.pem",
+		CertFile: stage.StoragePath() + "/certs/self-signed-cert.pem",
+	}
+	return opt
+}
+
+type HttpsService struct {
+	*WebServer
+	opt *HttpsOptions
+}
+
+func NewHttpsService(stage *owl.Stage, e *gin.Engine, opt *HttpsOptions) *HttpsService {
+
+	if opt == nil {
+		opt = NewDefaultHttpsOption(stage)
+	}
+
+	server := &HttpsService{
+		opt:       opt,
+		WebServer: NewWebServer(stage, e, opt.WebServerOptions),
+	}
+
+	go server.BlockRun()
+
+	return server
+}
+
+func (i *HttpsService) BlockRun() {
+	i.generateCerts()
+	httpsPort := i.opt.Port
+	key := i.opt.KeyFile
+	cert := i.opt.CertFile
+
+	// 设置 TLS 证书和密钥文件路径
+	keyFile := key
+	certFile := cert
+
+	go func() {
+
+		server, listener := i.getServerAndListener(httpsPort)
+		err := server.ServeTLS(listener, certFile, keyFile) // 启动 HTTPS 服务器
+		if err != nil {
+			log.Fatal("Failed to start server: ", err)
+		}
+	}()
+}
+
+func (i *HttpsService) GetOptions() *HttpsOptions {
+	return i.opt
+}
+
+func (i *HttpsService) generateCerts() {
+	certsPath := i.stage.RuntimePath(owl.StoragePath + "/certs")
 	os.Mkdir(certsPath, 0666)
 	// 生成私钥
 	priv, err := ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
@@ -80,27 +153,4 @@ func NewHttpsService(stage *owl.Stage, e *gin.Engine) *HttpsService {
 	}
 
 	fmt.Println("Self-signed certificate and private key generated successfully.")
-	return &HttpsService{
-		WebServer: NewWebServer(stage, e, nil),
-	}
-}
-
-func (i *HttpsService) Boot() {
-	appCfg := i.stage.AppCfg
-	httpsPort := appCfg("https-port").ToInt()
-	key := i.stage.AbsBinDir() + appCfg("https-key-file").ToString()
-	cert := i.stage.AbsBinDir() + appCfg("https-cert-file").ToString()
-
-	// 设置 TLS 证书和密钥文件路径
-	keyFile := key
-	certFile := cert
-
-	go func() {
-
-		server, listener := i.getServerAndListener(httpsPort)
-		err := server.ServeTLS(listener, certFile, keyFile) // 启动 HTTPS 服务器
-		if err != nil {
-			log.Fatal("Failed to start server: ", err)
-		}
-	}()
 }

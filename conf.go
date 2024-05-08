@@ -23,12 +23,15 @@ var (
 	CfgChangeNotify = make(map[string]chan string, 10) // 配置修改时通知
 )
 
-func NewConfigManager(confDir string) *ConfManager {
+func NewConfigManager(stage *Stage) *ConfManager {
+	confDir := stage.ConfigPath()
+
 	manager := ConfManager{
 		changeNotify: nil,
 		allCfg:       make(map[string]map[string]any),
 		confDir:      confDir,
 	}
+
 	err := filepath.Walk(confDir, func(path string, info fs.FileInfo, err error) error {
 		if info.IsDir() {
 			return nil
@@ -48,12 +51,12 @@ func NewConfigManager(confDir string) *ConfManager {
 	return &manager
 }
 
-func (i *ConfManager) GetConfig(key string) jsoniter.Any {
+func (i *ConfManager) GetConfig(key string, v any) error {
 	var getter jsoniter.Any
 
 	marshal, err := jsoniter.Marshal(i.allCfg)
 	if err != nil {
-		return getter
+		return err
 	}
 
 	pathArr := strings.Split(key, ".")
@@ -65,7 +68,11 @@ func (i *ConfManager) GetConfig(key string) jsoniter.Any {
 			getter = jsoniter.Get(marshal, path)
 		}
 	}
-	return getter
+
+	if getter != nil {
+		err = jsoniter.UnmarshalFromString(getter.ToString(), v)
+	}
+	return err
 }
 
 func (i *ConfManager) SaveConfig(fileName string, key string, value any) {
@@ -91,7 +98,7 @@ func (i *ConfManager) LoadConfig(fileName, cfgType string, c any) (string, *vipe
 	log.PrintLnBlue("配置文件: ", confFilePath)
 	cfg, err := os.ReadFile(confFilePath)
 	if err != nil {
-		log.PrintRed("配置文件不存在")
+		log.PrintRed("")
 		os.Exit(200)
 	}
 	v.AddConfigPath(confFilePath)
