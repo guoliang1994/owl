@@ -1,69 +1,81 @@
 package cache
 
-import (
-	"context"
-	"time"
-)
-
-// Store 类似于 PHP 中的 Illuminate\Contracts\Cache\Store 接口
-type Store interface {
-	Get(key string) (interface{}, error)
-	Put(key string, value interface{}, ttl time.Duration) error
-	Add(key string, value interface{}, ttl time.Duration) error
-	Increment(key string, value int64) (int64, error)
-	Decrement(key string, value int64) (int64, error)
-	Forever(key string, value interface{}) error
-	Forget(key string) error
-}
-
-// Repository 是一个扩展自 Store 的缓存操作接口
+// Repository 定义缓存仓库接口
 type Repository interface {
-	Store
-
 	// Retrieve an item from the cache and delete it.
-	Pull(key string, def interface{}) (interface{}, error)
+	//
+	// @param  string  $key
+	// @param  mixed  $default
+	// @return mixed
+	Pull(key string, defaultVal any) any
+
+	// Store an item in the cache.
+	//
+	// @param  string  $key
+	// @param  mixed  $value
+	// @param  \DateTimeInterface|\DateInterval|int|null  $ttl
+	// @return bool
+	Put(key string, value any, ttl any) bool
 
 	// Store an item in the cache if the key does not exist.
-	AddOrSet(key string, value interface{}, ttl time.Duration) (bool, error)
+	//
+	// @param  string  $key
+	// @param  mixed  $value
+	// @param  \DateTimeInterface|\DateInterval|int|null  $ttl
+	// @return bool
+	Add(key string, value any, ttl any) bool
 
 	// Increment the value of an item in the cache.
-	IncrementByKey(key string, value int64) (int64, error)
+	//
+	// @param  string  $key
+	// @param  mixed  $value
+	// @return int|bool
+	Increment(key string, value int) (int, bool)
 
 	// Decrement the value of an item in the cache.
-	DecrementByKey(key string, value int64) (int64, error)
+	//
+	// @param  string  $key
+	// @param  mixed  $value
+	// @return int|bool
+	Decrement(key string, value int) (int, bool)
 
 	// Store an item in the cache indefinitely.
-	RememberForever(key string, callback func() (interface{}, error)) (interface{}, error)
+	//
+	// @param  string  $key
+	// @param  mixed  $value
+	// @return bool
+	Forever(key string, value any) bool
 
-	// Get an item from the cache, or execute the given function and store the result.
-	Remember(key string, ttl time.Duration, callback func() (interface{}, error)) (interface{}, error)
+	// Get an item from the cache, or execute the given Closure and store the result.
+	//
+	// @param  string  $key
+	// @param  \DateTimeInterface|\DateInterval|int|null  $ttl
+	// @param  \Closure  $callback
+	// @return mixed
+	Remember(key string, ttl any, callback func() any) any
 
-	// Sear is likely a typo in the original PHP code. Assuming it should be RememberForever.
-	RememberForeverWithContext(ctx context.Context, key string, callback func() (interface{}, error)) (interface{}, error)
+	// Get an item from the cache, or execute the given Closure and store the result forever.
+	//
+	// @param  string  $key
+	// @param  \Closure  $callback
+	// @return mixed
+	Sear(key string, callback func() any) any
+
+	// Get an item from the cache, or execute the given Closure and store the result forever.
+	//
+	// @param  string  $key
+	// @param  \Closure  $callback
+	// @return mixed
+	RememberForever(key string, callback func() any) any
+
+	// Remove an item from the cache.
+	//
+	// @param  string  $key
+	// @return bool
+	Forget(key string) bool
+
+	// Get the cache store implementation.
+	//
+	// @return \Illuminate\Contracts\Cache\Store
+	GetStore() Store
 }
-
-// 示例方法实现（具体实现取决于实际存储和同步机制）
-type MyRepository struct {
-	store Store
-}
-
-func (r *MyRepository) Pull(key string, def interface{}) (interface{}, error) {
-	value, err := r.store.Get(key)
-	if err != nil {
-		return def, nil
-	}
-	// r.Forget(key)
-	return value, nil
-}
-
-// AddOrSet 方法合并了 add 和 put 功能
-func (r *MyRepository) AddOrSet(key string, value interface{}, ttl time.Duration) (bool, error) {
-	//_, existsErr := r.store.Get(key)
-	//if existsErr == nil {
-	//	return false, r.Put(key, value, ttl)
-	//}
-	//return true, r.Add(key, value, ttl)
-	return true, nil
-}
-
-// 其他示例方法实现略...

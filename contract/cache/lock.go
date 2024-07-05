@@ -4,7 +4,7 @@ import (
 	"context"
 )
 
-type Locker interface {
+type Lock interface {
 	// Get Attempt to acquire the lock.
 	Get(ctx context.Context, callback func()) error
 
